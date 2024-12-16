@@ -1,4 +1,4 @@
-# Thundagun
+# BlesoniteClient
 
 BlesoniteClient is a modification of thundagun that allows for pushing unity connector packet data into blender using IPC methods
 
