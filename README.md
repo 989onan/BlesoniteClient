@@ -24,9 +24,10 @@ Future features:
 1. load the blender file, and go to scripting, reload the python file for booting the server
 2. compile the mod, the dll goes into your resonite install under rml_mods
 3. make sure you have pywin32 installed inside blender
-3. run the python script inside blender. the game should boot from blender in screen mode.
-4. Wait a long time for the slots to initalize
-5. Blender should not be populated. closing Resonite will automatically clear the scene and purge all resonite associated data.
+4. edit the "path" variable to point to your resonite install
+5. run the python script inside blender. the game should boot from blender in screen mode.
+6. Wait a long time for the slots to initalize
+7. Blender should not be populated. closing Resonite will automatically clear the scene and purge all resonite associated data.
 
 
 ## Contributions and Support
