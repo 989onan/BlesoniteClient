@@ -6,7 +6,8 @@ import numpy as np
 from itertools import chain, islice, accumulate
 import time
 import sys
-import win32pipe, win32file, pywintypes #needs pywin32 install if uncommented.
+#import win32pipe, win32file, pywintypes #needs pywin32 install if uncommented.
+import mmap
 import subprocess
 import struct
 import threading
@@ -29,7 +30,6 @@ path = "D:/SteamLibrary/steamapps/common/Resonite"
 #        sys.path.append(os.path.join(root, f))
 
 
-
 #import clr
 #from System.Reflection import *
 #from System.Threading.Tasks import *
@@ -41,203 +41,12 @@ blender_status_slot = None
 status = ""
 FrooxiousBrain = None
 BlenderRunner = None
-PIPE = None
+PIPE: mmap.mmap = None
 
 def ReadBinary_Array(resp, type, bytesize):
     length = struct.unpack("i", resp.read(4))[0]
     #print(f"length of array is {length}")
     return struct.unpack(""+(type*length), resp.read(bytesize*length))
-
-def deleteObjectRecursive(obj):
-    try:
-        if len(obj.children) > 0:
-            for ob in obj.children[:]:
-                deleteObjectRecursive(ob)
-    except:
-        return
-    if "_FROOC" in obj:
-        slotref = BlenderRunner.GetSlotReference(FrooxiousBrain.WorldManager.FocusedWorld.ReferenceController,obj["_FROOC"])
-        if slotref != None:
-            BlenderRunner.ToSlotCon(slotref).PObj = None
-    bpy.data.objects.remove(obj, do_unlink=True)
-    
-
-def hideObjectRecursive(obj,hide):
-    try:
-        if len(obj.children) > 0:
-            for ob in obj.children[:]:
-                hideObjectRecursive(ob,hide)
-    except:
-        return
-    obj.hide_viewport = hide
-    obj.hide_render = hide
-
-def SlotInit(j,slot,par,parentpy):
-    return
-
-def SlotCreateEmpty(slot,parentpy):
-    global blender_status_slot
-    global FrooxiousBrain
-    global BlenderRunner
-    #print(slot,parentpy)
-    nam = slot.Name
-    if nam == None:
-        nam = "NoName..."
-    ob = BlenderRunner.ToSlotCon(slot).PObj
-    if ob == None:
-        ob = bpy.data.objects.new(nam, None)
-    
-    locpos = slot.LocalPosition
-    locrot = slot.LocalRotation
-    locsca = slot.LocalScale
-    
-    if (parentpy == None) and ((slot.RawParent) != None):
-        parentparent = slot.RawParent.RawParent
-        parentpy = SlotCreateEmpty((slot.RawParent),None if parentparent == None else BlenderRunner.ToSlotCon(parentparent).PObj)
-    if parentpy != None:
-        ob.matrix_world = parentpy.matrix_world
-    ob.parent = parentpy
-        
-    ob.location = (locpos[0],locpos[2],locpos[1])
-    ob.rotation_mode = "QUATERNION"
-    ob.rotation_quaternion = (-locrot.w,locrot.x,locrot.z,locrot.y)
-    ob.scale = (locsca[0],locsca[2],locsca[1])
-    if slot.IsActive == ob.hide_viewport:
-        hideObjectRecursive(ob,not slot.IsActive)
-    
-    bpy.data.collections["RESONITE"].objects.link(ob)
-    ob["_FROOC"] = BlenderRunner.RefIDToUlong(slot.ReferenceID)
-    BlenderRunner.ToSlotCon(slot).PObj = ob
-
-    return ob
-            
-
-def SlotUpdate(j,parentpy):
-    global blender_status_slot
-    global status
-    if j.PObj == None:
-        return
-    
-    
-    
-    locpos = j.Owner.LocalPosition
-    locrot = j.Owner.LocalRotation
-    locsca = j.Owner.LocalScale
-    try:
-        j.PObj.location = (locpos[0],locpos[2],locpos[1])
-    except:
-        SlotCreateEmpty(j.Owner,parentpy)
-        j.PObj.location = (locpos[0],locpos[2],locpos[1])
-    j.PObj.rotation_quaternion = (-locrot[3],locrot[0],locrot[2],locrot[1])
-    j.PObj.scale = (locsca[0],locsca[2],locsca[1])
-    if j.Owner.IsActive == j.PObj.hide_viewport:
-        hideObjectRecursive(j.PObj,not j.Owner.IsActive)
-    
-    parentpy = BlenderRunner.ToSlotCon(j.Owner.RawParent).PObj
-    if j.PObj.parent != parentpy:
-        if (parentpy == None) and (j.Owner.RawParent != None):
-            parentparent = j.Owner.RawParent.RawParent
-            parentpy = SlotCreateEmpty((j.Owner.RawParent),None if parentparent == None else BlenderRunner.ToSlotCon(parentparent).PObj)
-        if parentpy != None:
-            j.PObj.matrix_world = parentpy.matrix_world
-        j.PObj.parent = parentpy
-        j.PObj.location = (locpos[0],locpos[2],locpos[1])
-        j.PObj.rotation_quaternion = (-locrot[3],locrot[0],locrot[2],locrot[1])
-        j.PObj.scale = (locsca[0],locsca[2],locsca[1])
-    
-    
-    
-    
-    
-
-def SlotDestroy(j):
-    if j.PObj == None:
-        return
-    deleteObjectRecursive(j.PObj)
-
-def MeshInit(m):
-    meshname = m.mesh.AssetURL
-    if meshname == None:
-        meshname = "Unnamed mesh"
-    else:
-        meshname = meshname.ToString()
-    mesh_data = bpy.data.meshes.new(meshname)
-    mesh_data.use_fake_user = True
-    m.PObj = mesh_data
-    
-
-def MeshUnload(m):
-    bpy.data.meshes.remove(m.PObj, do_unlink=True)
-    m.PObj = None
-
-
-def MeshUpdateQueued(v):
-    mesh_data = v[0]
-    mesh_data.clear_geometry()
-    if v[1].SubmeshCount == 0:
-        mesh_finishes.append(v[2])
-        return
-    submesh = v[1].GetSubmesh(0)
-    indices = np.reshape(np.array(submesh.RawIndicies)[:submesh.Count*submesh.IndiciesPerElement],(submesh.Count,submesh.IndiciesPerElement))
-    for i in range(v[1].SubmeshCount):
-        submesh = v[1].GetSubmesh(i)
-        indices = np.concatenate((indices,np.reshape(np.array(submesh.RawIndicies)[:submesh.Count*submesh.IndiciesPerElement],(submesh.Count,submesh.IndiciesPerElement))),axis=0)
-    mesh_data.from_pydata(np.reshape(np.array(v[3]),(-1,3)),[],indices)
-    mesh_finishes.append(v[2])
-
-mesh_queue = []
-mesh_finishes = []
-def MeshUpdateData(m,meshx,uploadHint,bounds,onUpdated,rawPositions):
-    global mesh_queue
-    mesh_data = m.PObj
-    mesh_queue.append((mesh_data,meshx,onUpdated,rawPositions))
-    #MeshUpdateQueued((mesh_data,meshx,onUpdated,rawPositions))
-
-
-
-def MeshRendInit(mr,slotcon,meshcon,parentpy):
-    slot = mr.Owner.Slot
-    old = slotcon.PObj
-    locpos = slot.LocalPosition
-    locrot = slot.LocalRotation
-    locsca = slot.LocalScale
-    if old != None:
-        bpy.data.objects.remove(old, do_unlink=True)
-    ob = bpy.data.objects.new(slotcon.Owner.Name, meshcon.PObj)
-    if (parentpy == None) and ((slot.RawParent) != None):
-        parentparent = slot.RawParent.RawParent
-        parentpy = SlotCreateEmpty((slot.RawParent),None if parentparent == None else BlenderRunner.ToSlotCon(parentparent).PObj)
-    if parentpy != None:
-        ob.matrix_world = parentpy.matrix_world
-    
-    ob.parent = parentpy
-    
-    ob.location = (locpos[0],locpos[2],locpos[1])
-    ob.rotation_mode = "QUATERNION"
-    ob.rotation_quaternion = (-locrot.w,locrot.x,locrot.z,locrot.y)
-    ob.scale = (locsca[0],locsca[2],locsca[1])
-    if slot.IsActive == ob.hide_viewport:
-        hideObjectRecursive(ob,not slot.IsActive)
-    
-    bpy.data.collections["RESONITE"].objects.link(ob)
-    ob["_FROOC"] = BlenderRunner.RefIDToUlong(slot.ReferenceID)
-    
-    #bpy.data.collections["RESONITE"].objects.link(ob)
-    mr.PObj = ob
-    slotcon.PObj = ob
-    #slotcon.PObj["_FROOC"] = BlenderRunner.RefIDToUlong(slotcon.Owner.ReferenceID)
-    #
-
-def MeshRendUpdate(mr,slotcon,meshcon,parentpy):
-    if mr.PObj == None or meshcon.mesh != mr.Owner.Mesh.Asset:
-        MeshRendInit(mr,slotcon,meshcon,parentpy)
-    #mr.PObj.data = meshcon.PObj
-    pass
-
-def MeshRendDestroy(mr):
-    deleteObjectRecursive(mr.PObj)
-    mr.PObj = None
-    pass
 
 
 
@@ -293,15 +102,14 @@ class MeshUpdater():
             if str(slotrefid) in obj_name_cross_refs:
                 obparent = bpy.data.objects[obj_name_cross_refs[str(slotrefid)]]
                 mesh_obj.parent = obparent
+                mesh_obj.parent.hide_viewport = mesh_obj.parent.hide_viewport
+                mesh_obj.parent.hide_render = mesh_obj.parent.hide_render
         
         #bone_names = []
         if(binary[-1] == '1'):
             #print("vertices")
             self.vertices = ReadBinary_Array(resp,"f",4)
             self.vert_count = int(len(self.vertices)/3)
-            
-        if(binary[-2] == '1'):
-            #print("triangles")
             self.triangles = ReadBinary_Array(resp,"i",4)
             self.tri_count = int(len(self.triangles)/3)
             #we have gotten vert and tri count, generate mesh.
@@ -327,7 +135,7 @@ class MeshUpdater():
             bm.to_mesh(me)
             bm.free()  # free and prevent further access
             
-        if(binary[-3] == '1'):
+        if(binary[-2] == '1'):
             #print("bones")
             print("bones")
             #self.file = "C:/Users/Onan/source/repos/Krysalis/Thundagun/bone_CSV/"+str(refid)+".csv"
@@ -336,12 +144,7 @@ class MeshUpdater():
             if(len(mesh_obj.vertex_groups) == 0):
                 for idx,bone in enumerate(self.bones):
                     mesh_obj.vertex_groups.new(name=obj_name_cross_refs[str(bone)])
-        
-        if(binary[-4] == '1'):
-            print("bone_groups")
             self.bone_groups = ReadBinary_Array(resp,"i",4) 
-        if(binary[-5] == '1'):
-            print("bone_weights")
             self.bone_weights = ReadBinary_Array(resp,"f",4) 
             
             for idx in range(0,self.vert_count):
@@ -354,13 +157,11 @@ class MeshUpdater():
                     except:
                         print(f"error doing bone: boneindex: {bone}, vert_index: {idx}")
                         pass      
-        if(binary[-6] == '1'):
-            #print("bone_position")
             self.bone_position = np.reshape(np.array(ReadBinary_Array(resp,"f",4)),(-1,3)) 
-        if(binary[-7] == '1'):
-            print("bone_creation")
             self.bone_vector = np.reshape(np.array(ReadBinary_Array(resp,"f",4)),(-1,3)) 
             
+
+
             mesh_obj.parent = None
             
             
@@ -388,11 +189,12 @@ class MeshUpdater():
                 
                 #skelly.  
                 print("bone")
-                newbone = None
-                if obj_name_cross_refs[str(bone)] in skelly.data.edit_bones: 
-                    newbone = skelly.data.edit_bones[obj_name_cross_refs[str(bone)]]
+                arm_data: bpy.types.Armature = skelly.data
+                newbone: bpy.types.PoseBone = None
+                if obj_name_cross_refs[str(bone)] in arm_data.edit_bones: 
+                    newbone = arm_data.edit_bones[obj_name_cross_refs[str(bone)]]
                 else:
-                    newbone = skelly.data.edit_bones.new(obj_name_cross_refs[str(bone)])
+                    newbone = arm_data.edit_bones.new(obj_name_cross_refs[str(bone)])
                 
                 newbone.head = self.bone_position[idx]
                 newbone.tail = self.bone_vector[idx]+self.bone_position[idx]
@@ -406,21 +208,22 @@ class MeshUpdater():
                 #newbone.tail = [newbone.head[0],newbone.head[2],newbone.head[1]+1]
             bpy.ops.object.mode_set(mode='OBJECT')
             for idx,bone in enumerate(self.bones):
-                rotation = None
-                location = None
-                scale = None
-                if 'Copy Location' in skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints:
-                    location = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints['Copy Location']
+                rotation: bpy.types.CopyRotationConstraint = None
+                location: bpy.types.CopyLocationConstraint  = None
+                scale: bpy.types.CopyScaleConstraint  = None
+                constraints: bpy.types.PoseBoneConstraints = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints
+                if 'Copy Location' in constraints:
+                    location = constraints['Copy Location']
                 else:
-                    location = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints.new('COPY_LOCATION')
-                if 'Copy Rotation' in skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints:
-                    rotation = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints['Copy Rotation']
+                    location = constraints.new('COPY_LOCATION')
+                if 'Copy Rotation' in constraints:
+                    rotation = constraints['Copy Rotation']
                 else:
-                    rotation = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints.new('COPY_ROTATION')
-                if 'Copy Scale' in skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints:
-                    scale = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints['Copy Scale']
+                    rotation = constraints.new('COPY_ROTATION')
+                if 'Copy Scale' in constraints:
+                    scale = constraints['Copy Scale']
                 else:
-                    scale = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints.new('COPY_SCALE')
+                    scale = constraints.new('COPY_SCALE')
                 rotation.target = bpy.data.objects[obj_name_cross_refs[str(bone)]]
                 location.target = bpy.data.objects[obj_name_cross_refs[str(bone)]]
                 scale.target = bpy.data.objects[obj_name_cross_refs[str(bone)]]
@@ -428,7 +231,7 @@ class MeshUpdater():
                 #rotation.invert_x = True
             skelly.select_set(False)
             
-            mod = mesh_obj.modifiers.get("Armature")
+            mod: bpy.types.ArmatureModifier = mesh_obj.modifiers.get("Armature")
             if mod is None:
                 # otherwise add a modifier to selected object
                 mod = mesh_obj.modifiers.new("Armature", 'ARMATURE')
@@ -437,7 +240,7 @@ class MeshUpdater():
         
     
 
-lasttime = 0
+lasttime: float = 0
 class ModalOperator(bpy.types.Operator):
     """Move an object with the mouse, example"""
     bl_idname = "object.modal_operator"
@@ -480,70 +283,38 @@ class ModalOperator(bpy.types.Operator):
         #FrooxiousBrain.RunUpdateLoop()
         if not self.connected:
             try:
-                PIPE = win32file.CreateFile(
-                    r'\\.\pipe\FrooxEnginePipe',
-                    win32file.GENERIC_READ,
-                    0,
-                    None,
-                    win32file.OPEN_EXISTING,
-                    0,
-                    None
-                )
+                PIPE = mmap.mmap(0, 100000000, "FrooxEnginePipe")
                 self.connected = True
-            except pywintypes.error as e:
-                if e.args[0] == 2:
-                    #print("no pipe, trying again in a sec")
+            except Exception as e:
+                if(time.time()-lasttime < 1):
                     return {'PASS_THROUGH'}
+                lasttime = time.time()
+                print("no pipe, trying again in a sec")
+                print(traceback.format_exc())
+                return {'PASS_THROUGH'}
+                
             print("engine pipe connected.")
             
 
         try:
-            if win32pipe.PeekNamedPipe(PIPE,1)[1] > 0:
-                resp = win32file.ReadFile(PIPE, 20000000, None)
-                self.messagebin += resp[1]
-                indexofend = self.messagebin.find(b'FINIS_FR')
+            if PIPE[0:8] != bytes([0,0,0,0,0,0,0,0]):
                 
-                while indexofend != -1:
-                    try:
-                        self.Binary_Update(self.messagebin[:indexofend])
-                    except Exception:
-                        print("exception reading binary")
-                        print(traceback.format_exc())
-                    
-                    indexofend += len('FINIS_FR')
-                    self.messagebin = self.messagebin[indexofend:]
-                    indexofend = self.messagebin.find(b'FINIS_FR')
+                self.messagebin = PIPE[9:]
+                PIPE[0:8] = bytes([0,0,0,0,0,0,0,0])
+                try:
+                    self.Binary_Update(self.messagebin)
+                except Exception:
+                    print("exception reading binary")
+                    print(traceback.format_exc())
             else:
                 return {'PASS_THROUGH'}
                 
             
-        except pywintypes.error as e:
-            if e.args[0] == 2:
-                print("no pipe, trying again in a sec")
-                time.sleep(1)
-            elif e.args[0] == 109:
-                print("broken pipe, bye bye")
-                quit = True
-                
-                try:
-                    with bpy.context.temp_override(selected_objects = [obj for obj in bpy.data.objects if obj.name in self.obj_name_cross_refs.values()]): 
-                        bpy.ops.object.delete()
-                    #pass
-                except Exception:
-                    print("Deleting objects failed:")
-                    print(traceback.format_exc())
-                self.obj_name_cross_refs = {}
-                bpy.ops.outliner.orphans_purge()
-                win32file.CloseHandle(PIPE)
-                return {'FINISHED'}
-            else:
-                print(f"error: {e}")
-                print(PIPE)
-                
-        except Exception:
-            print("got error!")
+        except Exception as e:
+            print("exception reading pipe!")
             print(traceback.format_exc())
             return {'PASS_THROUGH'}
+            
         
         #for mesh in mesh_queue:
         #    MeshUpdateQueued(mesh)
@@ -579,24 +350,29 @@ class ModalOperator(bpy.types.Operator):
         
 
         TYPE = struct.unpack("b", resp.read(1))[0]
-        #print(TYPE)
-        if TYPE == 1:
-            #print("reading slot")
-            self.BINARY_SLOT(resp)
-        if TYPE == 2:
-            try:
-                print("reading mesh")
-                slotrefid = struct.unpack("q", resp.read(8))[0]
-                refid = struct.unpack("q", resp.read(8))[0]
-                if str(refid) in self.meshes:
-                    self.meshes[str(refid)].BINARY_MESH(resp,self.obj_name_cross_refs,slotrefid,refid)
-                else:
-                    self.meshes[str(refid)] = MeshUpdater()
-                    self.meshes[str(refid)].BINARY_MESH(resp,self.obj_name_cross_refs,slotrefid,refid)
-                print("finished mesh")
-            except Exception:
-                print("Error decoding mesh:")
-                print(traceback.format_exc())
+        print(TYPE)
+        while(resp.tell() < len(bin)):
+            if TYPE == 1:
+                #print("reading slot")
+                try:
+                    self.BINARY_SLOT(resp)
+                except Exception:
+                    print("Error decoding slot!")
+                    print(traceback.format_exc())
+            if TYPE == 2:
+                try:
+                    print("reading mesh")
+                    slotrefid = struct.unpack("q", resp.read(8))[0]
+                    refid = struct.unpack("q", resp.read(8))[0]
+                    if str(refid) in self.meshes:
+                        self.meshes[str(refid)].BINARY_MESH(resp,self.obj_name_cross_refs,slotrefid,refid)
+                    else:
+                        self.meshes[str(refid)] = MeshUpdater()
+                        self.meshes[str(refid)].BINARY_MESH(resp,self.obj_name_cross_refs,slotrefid,refid)
+                    print("finished mesh")
+                except Exception:
+                    print("Error decoding mesh:")
+                    print(traceback.format_exc())
     
 
             

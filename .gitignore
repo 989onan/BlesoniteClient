@@ -398,3 +398,5 @@ FodyWeavers.xsd
 *.sln.iml
 .idea/
 *.blend1
+/.vscode
+*.blend1

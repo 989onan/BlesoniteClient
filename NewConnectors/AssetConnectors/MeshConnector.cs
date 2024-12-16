@@ -13,13 +13,8 @@ using Mesh = UnityEngine.Mesh;
 namespace Thundagun.NewConnectors.AssetConnectors;
 public enum MeshUploadBlenderHint
 {
-    Vertices = 1 << 0,
-    Triangles = 1 << 1,
-    BoneID = 1 << 2,
-    BoneIndices = 1 << 3,
-    BoneWeights = 1 << 4,
-    BoneMatrix_Position = 1 << 5,
-    BoneMatrix_Rotation = 1 << 6
+    Geometry = 1 << 0,
+    Bones = 1 << 1,
 }
 
 public class MeshConnector : AssetConnector, IMeshConnector
@@ -80,7 +75,14 @@ public class MeshConnector : AssetConnector, IMeshConnector
                 MemoryObjectManagement.Save(TYPE);
                 MemoryObjectManagement.Save(slotrefid);
                 MemoryObjectManagement.Save(meshid);
-                MemoryObjectManagement.Save((int)(MeshUploadBlenderHint.Vertices | MeshUploadBlenderHint.Triangles));
+                MeshUploadBlenderHint flags = MeshUploadBlenderHint.Geometry;
+                if (savedMesh.HasBoneBindings)
+                {
+                    flags |= MeshUploadBlenderHint.Bones;
+                }
+
+                
+                MemoryObjectManagement.Save((byte)flags);
                 float[] positions = new float[savedMesh.Vertices.Count() * 3];
                 int j = 0;
                 foreach (Vertex vert in savedMesh.Vertices)
@@ -102,15 +104,11 @@ public class MeshConnector : AssetConnector, IMeshConnector
                     j++;
                 }
                 MemoryObjectManagement.SaveArray(tris);
-                MemoryObjectManagement.Release();
+                
 
 
                 if (savedMesh.HasBoneBindings)
                 {
-                    MemoryObjectManagement.Save(TYPE);
-                    MemoryObjectManagement.Save(slotrefid);
-                    MemoryObjectManagement.Save(meshid);
-                    MemoryObjectManagement.Save((int)(MeshUploadBlenderHint.BoneID| MeshUploadBlenderHint.BoneIndices| MeshUploadBlenderHint.BoneWeights| MeshUploadBlenderHint.BoneMatrix_Position| MeshUploadBlenderHint.BoneMatrix_Rotation));
                     MemoryObjectManagement.SaveArray(bones);
                     Thundagun.Msg("BONES LENGTH IS:" + bones.Length.ToString());
                     int[] boneindices = new int[savedMesh.Vertices.Count() * 4];
@@ -164,10 +162,10 @@ public class MeshConnector : AssetConnector, IMeshConnector
                     }
 
                     MemoryObjectManagement.SaveArray(bone_vector);
-                    MemoryObjectManagement.Release();
                     
                 }
-                
+                MemoryObjectManagement.ReleaseObject();
+
             }
 
 

@@ -9,6 +9,7 @@ using System.IO.MemoryMappedFiles;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace Thundagun
@@ -21,7 +22,8 @@ namespace Thundagun
 
 
         //first byte acts as a lock. I hope.
-        public static BinaryWriter stream;
+        public static MemoryMappedViewStream stream;
+        public static List<byte> FinalBuffer = new List<byte>();
         public static List<byte> buffer = new List<byte>();
 
 
@@ -46,18 +48,29 @@ namespace Thundagun
 
 
         //}
-
+        internal static void ReleaseObject()
+        {
+            FinalBuffer.AddRange(buffer);
+            buffer.Clear();
+        }
 
         public static bool isconnected = false;
         public static void Release()
         {
-            byte[] data = buffer.ToArray();
-            buffer.Clear();
+            byte[] data = FinalBuffer.ToArray();
+            FinalBuffer.Clear();
+            MemoryMappedViewStream stream2 = Thundagun.MemoryFrooxEngine.CreateViewStream(0, 8);
 
+
+            //nessary
+            SpinWait.SpinUntil(() => stream2.Seek(7, SeekOrigin.Begin) == 0, -1);
+
+            stream = Thundagun.MemoryFrooxEngine.CreateViewStream(9, data.Length);
             stream.Write(data, 0, data.Length);
-            stream.Write("FINIS_FR".ToList().Select(o => ((byte)o)).ToArray(), 0, "FINIS_FR".Length);
-            stream.Flush();
-
+            
+            stream2.Write(BitConverter.GetBytes((ulong)data.Length), 0, 7);
+            stream2.Close();
+            stream.Close();
         }
 
         public static void Purge()
@@ -68,21 +81,6 @@ namespace Thundagun
 
         public static void waitforconnect()
         {
-            if (isconnected == false)
-            {
-                Thundagun.Msg("!!!WAITING FOR IPC CONNECTION PIPE!!!");
-                
-                
-                isconnected = true;
-
-
-                stream = new BinaryWriter(Thundagun.MemoryFrooxEngine);
-                
-
-                Thundagun.Msg("IPC PIPE CONNECTED!");
-
-
-            }
 
             
 
@@ -231,5 +229,7 @@ namespace Thundagun
                 buffer.AddRange(BitConverter.GetBytes(array[i]));
             }
         }
+
+        
     }
 }

@@ -44,6 +44,7 @@ public class SlotConnector : Connector<Slot>, ISlotConnector
 
     public void WriteDataToBuffer(SlotTransferType type, bool destroy, bool create)
     {
+        
         try
         {
             type |= SlotTransferType.RefID;
@@ -156,7 +157,7 @@ public class SlotConnector : Connector<Slot>, ISlotConnector
                     MemoryObjectManagement.Save((ulong)0);
                 }
             }
-            MemoryObjectManagement.Release();
+            MemoryObjectManagement.ReleaseObject();
 
 
 
