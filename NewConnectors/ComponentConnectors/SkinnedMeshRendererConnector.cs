@@ -2,6 +2,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using Elements.Assets;
 using Elements.Core;
 using FrooxEngine;
@@ -316,5 +317,8 @@ public class ApplyChangesSkinnedMeshRenderer : ApplyChangesMeshRendererConnector
 
         if (Skinned.ForceRecalcPerRender) Skinned.MeshRenderer.forceMatrixRecalculationPerRender = true;
         Skinned.SendBoundsUpdated();
+        ulong[] bones = this.Bones.ToList().Select(x => x.Owner.ReferenceID.Position).ToArray();
+
+        Mesh.WriteDataToBuffer(false, true, this.Owner.Owner.ReferenceID.Position, this.Owner.Owner.Slot.ReferenceID.Position, bones);
     }
 }

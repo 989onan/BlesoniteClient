@@ -5,6 +5,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Pipes;
 using System.Linq;
 using System.Reflection;
 using System.Threading;
@@ -36,6 +37,8 @@ public class Thundagun : ResoniteMod
     public static Queue<IUpdatePacket> CurrentBatch = new();
 
     public static readonly Queue<Queue<IUpdatePacket>> CompletedUpdates = new();
+
+    public static NamedPipeServerStream MemoryFrooxEngine;
 
     public static Task FrooxEngineTask;
 
@@ -99,6 +102,19 @@ public class Thundagun : ResoniteMod
         };
         if (Config.GetValue(MaxUnityTickRate) < Config.GetValue(MaxEngineTickRate))
             Config.Set(MaxUnityTickRate, Config.GetValue(MaxEngineTickRate));
+
+        PipeSecurity sec = new PipeSecurity();
+        Thundagun.MemoryFrooxEngine = new NamedPipeServerStream("FrooxEnginePipe", PipeDirection.Out, 1, PipeTransmissionMode.Message, PipeOptions.None, 0, 20000000);// .CreateOrOpen("FrooxEngineMemoryMap", 25000, MemoryMappedFileAccess.Write);
+        try
+        {
+            Thundagun.MemoryFrooxEngine.WaitForConnection();
+
+        }
+        catch
+        {
+            Thundagun.Msg("no need to wait nerd!");
+        }
+
 
         PatchEngineTypes();
         PatchComponentConnectors(harmony);

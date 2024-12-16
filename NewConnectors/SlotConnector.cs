@@ -8,6 +8,21 @@ using UnityFrooxEngineRunner;
 
 namespace Thundagun.NewConnectors;
 
+[System.Flags]
+public enum SlotTransferType
+{
+
+    RefID = 1 << 0,
+    Destroy = 1 << 1,
+    Create = 1 << 2,
+    Name = 1 << 3,
+    Active = 1 << 4,
+    Position = 1 << 5,
+    Rotation = 1 << 6,
+    Scale = 1 << 7,
+    Parent = 1 << 8
+}
+
 public class SlotConnector : Connector<Slot>, ISlotConnector
 {
     public bool Active;
@@ -19,6 +34,145 @@ public class SlotConnector : Connector<Slot>, ISlotConnector
     public Vector3 Scale;
     public bool ShouldDestroy;
     public Transform Transform;
+
+    public static readonly byte TYPE = 1;
+
+    public string Name = "";
+    public string NewName = "";
+
+    public ulong IDposition = 0;
+
+    public void WriteDataToBuffer(SlotTransferType type, bool destroy, bool create)
+    {
+        try
+        {
+            type |= SlotTransferType.RefID;
+            try
+            {
+                NewName = this.Owner.Name;
+                if (!Name.Equals(NewName)) { type |= SlotTransferType.Name; }
+            }
+            catch
+            {
+                //idc
+            }
+            if (type.HasFlag(SlotTransferType.Destroy))
+            {
+
+                type = SlotTransferType.Destroy;
+                type |= SlotTransferType.RefID;
+            }
+
+
+            MemoryObjectManagement.Save(TYPE);
+            MemoryObjectManagement.Save(((int)type));
+
+            if (type.HasFlag(SlotTransferType.RefID))
+            {
+                try
+                {
+                    IDposition = this.Owner.ReferenceID.Position;
+                    MemoryObjectManagement.Save(this.Owner.ReferenceID.Position);
+                }
+                catch
+                {
+                    ulong refid = 0;
+                    MemoryObjectManagement.Save(refid);
+                }
+
+            }
+            if (type.HasFlag(SlotTransferType.Destroy))
+            {
+
+                MemoryObjectManagement.Save(TYPE);
+                MemoryObjectManagement.Save(((int)type));
+                MemoryObjectManagement.Save(destroy);
+                MemoryObjectManagement.Save(IDposition);
+                MemoryObjectManagement.Release();
+                return;
+
+            }
+            if (type.HasFlag(SlotTransferType.Create))
+            {
+                MemoryObjectManagement.Save(create);
+            }
+
+
+
+
+
+
+            if (type.HasFlag(SlotTransferType.Name))
+            {
+                Name = NewName;
+
+                try
+                {
+                    if (Name.Equals("FINIS_FR"))
+                    {
+                        Name = "NICE TRY";
+                    }
+                    MemoryObjectManagement.SaveString(Name);
+                }
+                catch
+                {
+                    string name = "UNNAMED";
+                    MemoryObjectManagement.SaveString(name);
+                }
+            }
+
+
+            if (type.HasFlag(SlotTransferType.Active))
+            {
+                MemoryObjectManagement.Save(this.Active);
+            }
+            if (type.HasFlag(SlotTransferType.Position))
+            {
+                MemoryObjectManagement.Save(Position.x);
+                MemoryObjectManagement.Save(Position.y);
+                MemoryObjectManagement.Save(Position.z);
+            }
+            if (type.HasFlag(SlotTransferType.Rotation))
+            {
+                MemoryObjectManagement.Save(Rotation.x);
+                MemoryObjectManagement.Save(Rotation.y);
+                MemoryObjectManagement.Save(Rotation.z);
+                MemoryObjectManagement.Save(Rotation.w);
+            }
+            if (type.HasFlag(SlotTransferType.Scale))
+            {
+                MemoryObjectManagement.Save(Scale.x);
+                MemoryObjectManagement.Save(Scale.y);
+                MemoryObjectManagement.Save(Scale.z);
+            }
+            if (type.HasFlag(SlotTransferType.Parent))
+            {
+                try
+                {
+                    MemoryObjectManagement.Save(this.ParentConnector.Owner.ReferenceID.Position);
+                }
+                catch
+                {
+                    MemoryObjectManagement.Save((ulong)0);
+                }
+            }
+            MemoryObjectManagement.Release();
+
+
+
+
+
+
+
+        }
+        catch (System.Exception e)
+        {
+            Thundagun.Msg(e.Message.ToString());
+            Thundagun.Msg(e.StackTrace.ToString());
+            MemoryObjectManagement.Purge();
+        }
+    }
+
 
     public WorldConnector WorldConnector => (WorldConnector)World.Connector;
 
@@ -79,6 +233,7 @@ public class SlotConnector : Connector<Slot>, ISlotConnector
         GeneratedGameObject = null;
         Transform = null;
         ParentConnector = null;
+        this.WriteDataToBuffer(SlotTransferType.Destroy, true, false);
     }
 
     private void GenerateGameObject()
@@ -88,6 +243,7 @@ public class SlotConnector : Connector<Slot>, ISlotConnector
         UpdateParent();
         UpdateLayer();
         SetData();
+        this.WriteDataToBuffer(SlotTransferType.Parent|SlotTransferType.Create | SlotTransferType.Active, false, true);
     }
 
     private void UpdateParent()
@@ -118,6 +274,7 @@ public class SlotConnector : Connector<Slot>, ISlotConnector
         transform.localPosition = Position;
         transform.localRotation = Rotation;
         transform.localScale = Scale;
+        this.WriteDataToBuffer(SlotTransferType.Rotation | SlotTransferType.Position | SlotTransferType.Scale, false, true);
     }
 }
 

@@ -203,6 +203,7 @@ public class ApplyChangesMeshRendererConnectorBase<T, TU> : UpdatePacket<MeshRen
             if (ShadowCastingModeChanged || instantiated) Owner.MeshRenderer.shadowCastingMode = ShadowCastingMode;
             if (MotionVectorModeChanged || instantiated)
                 Owner.MeshRenderer.motionVectorGenerationMode = MotionVectorMode;
+            Mesh.WriteDataToBuffer(false, true, this.Owner.Owner.ReferenceID.Position, this.Owner.Owner.Slot.ReferenceID.Position, new ulong[] { });
             OnUpdateRenderer(instantiated);
         }
     }
