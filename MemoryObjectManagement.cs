@@ -57,18 +57,32 @@ namespace Thundagun
         public static bool isconnected = false;
         public static void Release()
         {
+            //Thundagun.Msg("releasing buffer!");
             byte[] data = FinalBuffer.ToArray();
             FinalBuffer.Clear();
+
             MemoryMappedViewStream stream2 = Thundagun.MemoryFrooxEngine.CreateViewStream(0, 8);
-
-
+            
             //nessary
-            SpinWait.SpinUntil(() => stream2.Seek(7, SeekOrigin.Begin) == 0, -1);
 
-            stream = Thundagun.MemoryFrooxEngine.CreateViewStream(9, data.Length);
+            SpinWait.SpinUntil(() => {
+                
+                byte[] data = new byte[8];
+                stream2.Read(data, 0, 8);
+                stream2 = Thundagun.MemoryFrooxEngine.CreateViewStream(0, 8);
+                return BitConverter.ToInt64(data, 0) == 0;
+                }, 
+                
+                -1);// wait forever for python to finish.
+
+            
+
+
+            stream = Thundagun.MemoryFrooxEngine.CreateViewStream(9, 100000000-12); //idk lengths! - @989onan
             stream.Write(data, 0, data.Length);
             
-            stream2.Write(BitConverter.GetBytes((ulong)data.Length), 0, 7);
+            stream2.Write(BitConverter.GetBytes((ulong)data.Length), 0, 8);
+
             stream2.Close();
             stream.Close();
         }
@@ -226,7 +240,7 @@ namespace Thundagun
             buffer.AddRange(BitConverter.GetBytes(size));
             for (int i = 0; i < size; i++)
             {
-                buffer.AddRange(BitConverter.GetBytes(array[i]));
+                buffer.Add((byte)(array[i]));
             }
         }
 

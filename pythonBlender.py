@@ -50,6 +50,21 @@ def ReadBinary_Array(resp, type, bytesize):
 
 
 
+class BytesIOWrapper():
+    
+    read_amount: int 
+    data: io.BytesIO
+    
+    def __init__(self,data: io.BytesIO):
+        self.read_amount = 0
+        self.data = data
+        
+    def read(self,amount: int) -> bytes:
+        self.read_amount += amount
+        return self.data.read(amount)
+        
+
+
 def InitFrooc():
     global FrooxiousBrain
     global BlenderRunner
@@ -247,6 +262,8 @@ class ModalOperator(bpy.types.Operator):
     bl_label = "Simple Modal Operator"
     
     
+    process: subprocess.Popen = None
+    
     messagebin = b""
     connected = False
     
@@ -299,7 +316,7 @@ class ModalOperator(bpy.types.Operator):
         try:
             if PIPE[0:8] != bytes([0,0,0,0,0,0,0,0]):
                 
-                self.messagebin = PIPE[9:]
+                self.messagebin = PIPE[9:struct.unpack("<Q",PIPE[0:8])[0]]
                 PIPE[0:8] = bytes([0,0,0,0,0,0,0,0])
                 try:
                     self.Binary_Update(self.messagebin)
@@ -307,6 +324,20 @@ class ModalOperator(bpy.types.Operator):
                     print("exception reading binary")
                     print(traceback.format_exc())
             else:
+                if self.process.poll() != None:
+                    print("broken pipe, bye bye")
+                    quit = True
+                    
+                    try:
+                        with bpy.context.temp_override(selected_objects = [obj for obj in bpy.data.objects if obj.name in self.obj_name_cross_refs.values()]): 
+                            bpy.ops.object.delete()
+                        #pass
+                    except Exception:
+                        print("Deleting objects failed:")
+                        print(traceback.format_exc())
+                    self.obj_name_cross_refs = {}
+                    bpy.ops.outliner.orphans_purge()
+                    return {'FINISHED'}
                 return {'PASS_THROUGH'}
                 
             
@@ -336,7 +367,7 @@ class ModalOperator(bpy.types.Operator):
         return {'PASS_THROUGH'}
 
     def invoke(self, context, event):
-        subprocess.Popen(["resonite.exe", "-Screen", "-LoadAssembly", "Libraries/ResoniteModLoader.dll", "-DoNotAutoLoadHome"], shell=True, cwd=path)
+        self.process = subprocess.Popen(["resonite.exe", "-Screen", "-LoadAssembly", "Libraries/ResoniteModLoader.dll", "-DoNotAutoLoadHome"], shell=True, cwd=path)
         self.obj_name_cross_refs = {}
         InitFrooc()
         self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
@@ -346,12 +377,13 @@ class ModalOperator(bpy.types.Operator):
     def Binary_Update(self, bin):
         #print(f"binary: {bin}")
         #print(BitArray(bytes=bin).b)
-        resp = io.BytesIO(bin)
+        resp = BytesIOWrapper(io.BytesIO(bin))
         
 
-        TYPE = struct.unpack("b", resp.read(1))[0]
-        print(TYPE)
-        while(resp.tell() < len(bin)):
+        
+        while(resp.read_amount < len(bin)):
+            TYPE = struct.unpack("b", resp.read(1))[0]
+            print(TYPE)
             if TYPE == 1:
                 #print("reading slot")
                 try:
@@ -373,7 +405,8 @@ class ModalOperator(bpy.types.Operator):
                 except Exception:
                     print("Error decoding mesh:")
                     print(traceback.format_exc())
-    
+            else:
+                print("Error decoding stream, unrecognized type /\\")
 
             
 
@@ -430,11 +463,12 @@ class ModalOperator(bpy.types.Operator):
                     del self.obj_name_cross_refs[str(deleted.refid)]
                 with bpy.context.temp_override(selected_objects = list): 
                     bpy.ops.object.delete()
+                return
             if(binary[-3] == '1'):
                 #print("create!")
                 create = struct.unpack("?", resp.read(1))[0]
             if(binary[-4] == '1'):
-                name = resp.read(struct.unpack('i', resp.read(4))[0]*2).decode('utf-16-le')
+                name = resp.read(struct.unpack('i', resp.read(4))[0]).decode('utf-8')
                 if name != None:
                     ob.name = name
                     self.obj_name_cross_refs[str(refid)] = ob.name
