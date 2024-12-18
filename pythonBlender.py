@@ -44,9 +44,9 @@ BlenderRunner = None
 PIPE: mmap.mmap = None
 
 def ReadBinary_Array(resp, type, bytesize):
-    length = struct.unpack("i", resp.read(4))[0]
+    length = struct.unpack("<i", resp.read(4))[0]
     #print(f"length of array is {length}")
-    return struct.unpack(""+(type*length), resp.read(bytesize*length))
+    return struct.unpack("<"+(type*length), resp.read(bytesize*length))
 
 
 
@@ -99,7 +99,7 @@ class MeshUpdater():
         #vert_count = 0
         
         
-        binary = format(int(struct.unpack('i', resp.read(4))[0]),'#034b')
+        binary = format(int(struct.unpack('<B', resp.read(1))[0]),'#010b')
         mesh_data = None
         mesh_obj = None
         if str(refid) in bpy.data.meshes:
@@ -155,7 +155,7 @@ class MeshUpdater():
             print("bones")
             #self.file = "C:/Users/Onan/source/repos/Krysalis/Thundagun/bone_CSV/"+str(refid)+".csv"
             
-            self.bones = ReadBinary_Array(resp,"q",8)
+            self.bones = ReadBinary_Array(resp,"Q",8)
             if(len(mesh_obj.vertex_groups) == 0):
                 for idx,bone in enumerate(self.bones):
                     mesh_obj.vertex_groups.new(name=obj_name_cross_refs[str(bone)])
@@ -269,7 +269,7 @@ class ModalOperator(bpy.types.Operator):
     
     obj_name_cross_refs = {}
     
-    meshes = {}
+    meshes: dict[str, MeshUpdater] = {}
     
     _timer = None
     quit = False
@@ -316,7 +316,7 @@ class ModalOperator(bpy.types.Operator):
         try:
             if PIPE[0:8] != bytes([0,0,0,0,0,0,0,0]):
                 
-                self.messagebin = PIPE[9:struct.unpack("<Q",PIPE[0:8])[0]]
+                self.messagebin = PIPE[8:struct.unpack("<Q",PIPE[0:8])[0]]
                 PIPE[0:8] = bytes([0,0,0,0,0,0,0,0])
                 try:
                     self.Binary_Update(self.messagebin)
@@ -382,20 +382,21 @@ class ModalOperator(bpy.types.Operator):
 
         
         while(resp.read_amount < len(bin)):
-            TYPE = struct.unpack("b", resp.read(1))[0]
-            print(TYPE)
-            if TYPE == 1:
+            Type = struct.unpack("<B", resp.read(1))[0]
+            #print(Type)
+            if Type == 1:
                 #print("reading slot")
                 try:
                     self.BINARY_SLOT(resp)
                 except Exception:
                     print("Error decoding slot!")
-                    print(traceback.format_exc())
-            if TYPE == 2:
+                    raise Exception
+            elif Type == 2:
+                #raise Exception("NO MESHES ALLOWED RIGHT NOW - @989onan")
                 try:
                     print("reading mesh")
-                    slotrefid = struct.unpack("q", resp.read(8))[0]
-                    refid = struct.unpack("q", resp.read(8))[0]
+                    slotrefid = struct.unpack("<Q", resp.read(8))[0]
+                    refid = struct.unpack("<Q", resp.read(8))[0]
                     if str(refid) in self.meshes:
                         self.meshes[str(refid)].BINARY_MESH(resp,self.obj_name_cross_refs,slotrefid,refid)
                     else:
@@ -404,9 +405,9 @@ class ModalOperator(bpy.types.Operator):
                     print("finished mesh")
                 except Exception:
                     print("Error decoding mesh:")
-                    print(traceback.format_exc())
+                    raise Exception
             else:
-                print("Error decoding stream, unrecognized type /\\")
+                raise Exception(f"Error decoding stream, unrecognized type \"{Type}\"")
 
             
 
@@ -424,7 +425,7 @@ class ModalOperator(bpy.types.Operator):
         refid,create,destroy,active,position,rotation,scale,parentID,name = (None,None,None,None,None,None,None,0,None)
         
         try:
-            binary = format(int(struct.unpack('i', resp.read(4))[0]),'#034b')
+            binary = format(int(struct.unpack('<i', resp.read(4))[0]),'#034b')
             
             
             
@@ -433,7 +434,7 @@ class ModalOperator(bpy.types.Operator):
             ob = None
             if(binary[-1] == '1'): #just in case
                 #print("refid!")
-                refid = struct.unpack("q", resp.read(8))[0]
+                refid = struct.unpack("<Q", resp.read(8))[0]
                 #print(str(refid))
             
             
@@ -456,7 +457,7 @@ class ModalOperator(bpy.types.Operator):
             
             if(binary[-2] == '1'):
                 #print("destroy")
-                destroy = struct.unpack("?", resp.read(1))[0]
+                #TODO: Record mode create insert keyframe
                 list = [t for t in ob.children_recursive]
                 list.append(ob)
                 for deleted in list:
@@ -465,10 +466,10 @@ class ModalOperator(bpy.types.Operator):
                     bpy.ops.object.delete()
                 return
             if(binary[-3] == '1'):
-                #print("create!")
-                create = struct.unpack("?", resp.read(1))[0]
+                #print("create!") #TODO: Record mode create insert keyframe
+                pass
             if(binary[-4] == '1'):
-                name = resp.read(struct.unpack('i', resp.read(4))[0]).decode('utf-8')
+                name = resp.read(struct.unpack('<i', resp.read(4))[0]).decode('utf-8')
                 if name != None:
                     ob.name = name
                     self.obj_name_cross_refs[str(refid)] = ob.name
@@ -482,20 +483,20 @@ class ModalOperator(bpy.types.Operator):
                     hidden.hide_render = not active
             if(binary[-6] == '1'):
                 #print("position!")
-                position = [struct.unpack("f", resp.read(4))[0],struct.unpack("f", resp.read(4))[0],struct.unpack("f", resp.read(4))[0]]
+                position = [struct.unpack("<f", resp.read(4))[0],struct.unpack("<f", resp.read(4))[0],struct.unpack("<f", resp.read(4))[0]]
                 ob.location = [position[0],position[2],position[1]]
             if(binary[-7] == '1'):
                 #print("rotation!")
-                rotation = [struct.unpack("f", resp.read(4))[0],struct.unpack("f", resp.read(4))[0],struct.unpack("f", resp.read(4))[0],struct.unpack("f", resp.read(4))[0]]
+                rotation = [struct.unpack("<f", resp.read(4))[0],struct.unpack("<f", resp.read(4))[0],struct.unpack("<f", resp.read(4))[0],struct.unpack("<f", resp.read(4))[0]]
                 ob.rotation_mode = 'QUATERNION'
                 ob.rotation_quaternion = [-rotation[3],rotation[0],rotation[2],rotation[1]]
             if(binary[-8] == '1'):
                 #print("scale!")
-                scale = [struct.unpack("f", resp.read(4))[0],struct.unpack("f", resp.read(4))[0],struct.unpack("f", resp.read(4))[0]]
+                scale = [struct.unpack("<f", resp.read(4))[0],struct.unpack("<f", resp.read(4))[0],struct.unpack("<f", resp.read(4))[0]]
                 ob.scale = [scale[0],scale[2],scale[1]]
             if(binary[-9] == '1'):
                 #print("ParentID!")
-                parentID = struct.unpack("q", resp.read(8))[0]
+                parentID = struct.unpack("<Q", resp.read(8))[0]
                 #print(parentID)
                 if str(parentID) in self.obj_name_cross_refs:
                     obparent = bpy.data.objects[self.obj_name_cross_refs[str(parentID)]]

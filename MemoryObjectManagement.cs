@@ -70,7 +70,7 @@ namespace Thundagun
                 byte[] data = new byte[8];
                 stream2.Read(data, 0, 8);
                 stream2 = Thundagun.MemoryFrooxEngine.CreateViewStream(0, 8);
-                return BitConverter.ToInt64(data, 0) == 0;
+                return BitConverter.ToUInt64(data, 0) == 0;
                 }, 
                 
                 -1);// wait forever for python to finish.
@@ -78,7 +78,7 @@ namespace Thundagun
             
 
 
-            stream = Thundagun.MemoryFrooxEngine.CreateViewStream(9, 100000000-12); //idk lengths! - @989onan
+            stream = Thundagun.MemoryFrooxEngine.CreateViewStream(8, 100000000-20); //idk lengths! - @989onan
             stream.Write(data, 0, data.Length);
             
             stream2.Write(BitConverter.GetBytes((ulong)data.Length), 0, 8);
