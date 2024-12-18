@@ -120,6 +120,9 @@ class MeshUpdater():
                 mesh_obj.parent.hide_viewport = mesh_obj.parent.hide_viewport
                 mesh_obj.parent.hide_render = mesh_obj.parent.hide_render
         
+        if(binary[-3] == '1'):
+            return #we already got the data, according to mod code where if we write "NewObj" flag after uploading means that the mesh has been uploaded.
+
         #bone_names = []
         if(binary[-1] == '1'):
             #print("vertices")
@@ -203,11 +206,12 @@ class MeshUpdater():
                 
                 
                 #skelly.  
-                print("bone")
+                #print("bone")
                 arm_data: bpy.types.Armature = skelly.data
                 newbone: bpy.types.PoseBone = None
                 if obj_name_cross_refs[str(bone)] in arm_data.edit_bones: 
-                    newbone = arm_data.edit_bones[obj_name_cross_refs[str(bone)]]
+                    continue
+                    #newbone = arm_data.edit_bones[obj_name_cross_refs[str(bone)]]
                 else:
                     newbone = arm_data.edit_bones.new(obj_name_cross_refs[str(bone)])
                 
@@ -315,11 +319,11 @@ class ModalOperator(bpy.types.Operator):
 
         try:
             if PIPE[0:8] != bytes([0,0,0,0,0,0,0,0]):
-                
-                self.messagebin = PIPE[8:struct.unpack("<Q",PIPE[0:8])[0]]
+                length = struct.unpack("<Q", PIPE[0:8])[0]
+                self.messagebin = PIPE[8:100000000-20]
                 PIPE[0:8] = bytes([0,0,0,0,0,0,0,0])
                 try:
-                    self.Binary_Update(self.messagebin)
+                    self.Binary_Update(self.messagebin,length)
                 except Exception:
                     print("exception reading binary")
                     print(traceback.format_exc())
@@ -327,9 +331,13 @@ class ModalOperator(bpy.types.Operator):
                 if self.process.poll() != None:
                     print("broken pipe, bye bye")
                     quit = True
-                    
+                    skelly = None
+                    objects = [obj for obj in bpy.data.objects if obj.name in self.obj_name_cross_refs.values()]
+                    if "SCENE_BLENDER_ARMATURE" in bpy.data.objects:
+                        skelly = bpy.data.objects["SCENE_BLENDER_ARMATURE"]
+                    objects.append(skelly)
                     try:
-                        with bpy.context.temp_override(selected_objects = [obj for obj in bpy.data.objects if obj.name in self.obj_name_cross_refs.values()]): 
+                        with bpy.context.temp_override(selected_objects = objects): 
                             bpy.ops.object.delete()
                         #pass
                     except Exception:
@@ -374,16 +382,17 @@ class ModalOperator(bpy.types.Operator):
         context.window_manager.modal_handler_add(self)
         
         return {'RUNNING_MODAL'}
-    def Binary_Update(self, bin):
-        #print(f"binary: {bin}")
+    def Binary_Update(self, bin, length: int):
+        #print(f"binary: {length}")
         #print(BitArray(bytes=bin).b)
         resp = BytesIOWrapper(io.BytesIO(bin))
         
 
         
-        while(resp.read_amount < len(bin)):
+        while(resp.read_amount < length):
+            #print(resp.read_amount)
             Type = struct.unpack("<B", resp.read(1))[0]
-            #print(Type)
+            
             if Type == 1:
                 #print("reading slot")
                 try:
@@ -447,32 +456,30 @@ class ModalOperator(bpy.types.Operator):
                     bpy.data.collections["RESONITE"].objects.link(ob)
                     self.obj_name_cross_refs[str(refid)] = ob.name
                     ob.refid = str(refid)
-            if ob == None:
-                return
             
-            if ob.parent != None:
-                if not ob.hide_viewport:
-                    ob.hide_viewport = ob.parent.hide_viewport
-                    ob.hide_render = ob.parent.hide_render
+            
             
             if(binary[-2] == '1'):
                 #print("destroy")
-                #TODO: Record mode create insert keyframe
+                #TODO: Record mode destroy insert keyframe
                 list = [t for t in ob.children_recursive]
                 list.append(ob)
                 for deleted in list:
                     del self.obj_name_cross_refs[str(deleted.refid)]
                 with bpy.context.temp_override(selected_objects = list): 
                     bpy.ops.object.delete()
-                return
             if(binary[-3] == '1'):
                 #print("create!") #TODO: Record mode create insert keyframe
                 pass
             if(binary[-4] == '1'):
-                name = resp.read(struct.unpack('<i', resp.read(4))[0]).decode('utf-8')
+                name:str = resp.read(struct.unpack('<i', resp.read(4))[0]).decode('utf-8')
+                if("UNNAMED" in ob.name):
+                    print(f"\"{ob.name}\" is an object being renamed to: \"{name}\"")
                 if name != None:
                     ob.name = name
+                    
                     self.obj_name_cross_refs[str(refid)] = ob.name
+                    ob.refid = str(refid)
             if(binary[-5] == '1'):
                 #print("Active!")
                 active = struct.unpack("?", resp.read(1))[0]
@@ -499,8 +506,10 @@ class ModalOperator(bpy.types.Operator):
                 parentID = struct.unpack("<Q", resp.read(8))[0]
                 #print(parentID)
                 if str(parentID) in self.obj_name_cross_refs:
-                    obparent = bpy.data.objects[self.obj_name_cross_refs[str(parentID)]]
+                    obparent: bpy.types.Object = bpy.data.objects[self.obj_name_cross_refs[str(parentID)]]
                     ob.parent = obparent
+                    ob.hide_viewport = obparent.hide_viewport
+                    ob.hide_render = obparent.hide_render
                     
             #print("FINISH!")
             

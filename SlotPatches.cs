@@ -1,4 +1,5 @@
 ﻿using Elements.Core;
+using FrooxEngine;
 using HarmonyLib;
 using System;
 using System.Collections.Generic;
@@ -69,14 +70,7 @@ namespace Thundagun
         [HarmonyPostfix]
         private static void GenerateGameObject(SlotConnector __instance)
         {
-            SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Parent | SlotTransferType.Create | SlotTransferType.Active, getmemobj(__instance));
-        }
-
-        [HarmonyPatch("SetData")]
-        [HarmonyPostfix]
-        private static void SetData(SlotConnector __instance)
-        {
-            SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Rotation | SlotTransferType.Position | SlotTransferType.Scale | SlotTransferType.Active, getmemobj(__instance));
+            SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Rotation | SlotTransferType.Name | SlotTransferType.Position | SlotTransferType.Scale | SlotTransferType.Create | SlotTransferType.Active, getmemobj(__instance));
         }
 
         [HarmonyPatch("UpdateParent")]
@@ -120,9 +114,12 @@ namespace Thundagun
 
         [HarmonyPatch("TryDestroy")]
         [HarmonyPostfix]
-        public static void TryDestroy(SlotConnector __instance)
+        public static void TryDestroy(SlotConnector __instance, bool ___shouldDestroy, ref int ___gameObjectRequests)
         {
-            SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Destroy, getmemobj(__instance));
+            if (___shouldDestroy && ___gameObjectRequests == 0)
+            {
+                SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Destroy, getmemobj(__instance));
+            }
         }
 
 
@@ -147,13 +144,8 @@ namespace Thundagun
                 type |= SlotTransferType.RefID;
                 if (type.HasFlag(SlotTransferType.Destroy))
                 {
-
                     type = SlotTransferType.Destroy;
                     type |= SlotTransferType.RefID;
-                    MemoryObjectManagement.Save(TYPE);
-                    MemoryObjectManagement.Save(((int)type));
-                    MemoryObjectManagement.ReleaseObject();
-                    return;
                 }
 
                 MemoryObjectManagement.Save(TYPE);
@@ -164,19 +156,15 @@ namespace Thundagun
 
                 if (type.HasFlag(SlotTransferType.RefID))
                 {
-                    try
-                    {
-                        MemoryObjectManagement.Save(__instance.Owner.ReferenceID.Position);
-                    }
-                    catch
-                    {
-                        ulong refid = 0;
-                        MemoryObjectManagement.Save(refid);
-                    }
-
+                    
+                    MemoryObjectManagement.Save(__instance.Owner.ReferenceID.Position);
                 }
-
-
+                if (type.HasFlag(SlotTransferType.Destroy))
+                {
+                    MemoryObjectManagement.ReleaseObject();
+                    memory.Remove(__instance); //release resources
+                    return;
+                }
 
 
 
@@ -185,15 +173,7 @@ namespace Thundagun
                 {
                     memoryobj.Name = memoryobj.NewName;
 
-                    try
-                    {
-                        MemoryObjectManagement.SaveString(memoryobj.Name);
-                    }
-                    catch
-                    {
-                        string name = "UNNAMED";
-                        MemoryObjectManagement.SaveString(name);
-                    }
+                    MemoryObjectManagement.SaveString(memoryobj.Name);
                 }
 
 
@@ -222,14 +202,7 @@ namespace Thundagun
                 }
                 if (type.HasFlag(SlotTransferType.Parent))
                 {
-                    try
-                    {
-                        MemoryObjectManagement.Save(__instance.Owner.Parent.Connector.Owner.ReferenceID.Position);
-                    }
-                    catch
-                    {
-                        MemoryObjectManagement.Save((ulong)0);
-                    }
+                    MemoryObjectManagement.Save(__instance.Owner.Parent.ReferenceID.Position);
                 }
                 MemoryObjectManagement.ReleaseObject();
 

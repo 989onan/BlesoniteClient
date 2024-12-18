@@ -10,6 +10,7 @@ using System.Threading.Tasks;
 using UnityEngine.PlayerLoop;
 using UnityFrooxEngineRunner;
 using static FrooxEngine.DynamicBoneChain;
+using static HarmonyLib.Code;
 
 namespace Thundagun
 {
@@ -17,6 +18,7 @@ namespace Thundagun
     {
         Geometry = 1 << 0,
         Bones = 1 << 1,
+        NewObj = 1 << 2,
     }
     
     [HarmonyPatch(typeof(SkinnedMeshRendererConnector))]
@@ -76,11 +78,17 @@ namespace Thundagun
 
         public bool upload = false;
         public float[] positions = new float[] { 0 };
+        private float[] prevpositions = new float[] { 0 };
         public int[] tris = new int[] { 0 };
+        private int[] prevtris = new int[] { 0 };
         public int[] boneindices = new int[] { 0,0,0,0 };
+        private int[] prevboneindices = new int[] { 0 };
         public float[] boneweights = new float[] { 0 };
+        private float[] prevboneweights = new float[] { 0 };
         public float[] bone_pos = new float[] { 0 };
+        private float[] prevbone_pos = new float[] { 0 };
         public float[] bone_vector = new float[] { 0 };
+        private float[] prevbone_vector = new float[] { 0 };
         public bool bone_data = false;
         public MeshConnectorExtension()
         {
@@ -92,7 +100,8 @@ namespace Thundagun
         {
             if (uploadHint[MeshUploadHint.Flag.Geometry])
             {
-                this.upload = true;
+                
+
             }
             else
             {
@@ -173,8 +182,24 @@ namespace Thundagun
                 }
 
 
-
+                if (positions != prevpositions ||
+                    tris != prevtris ||
+                    boneindices != prevboneindices ||
+                    boneweights != prevboneweights ||
+                    bone_pos != prevbone_pos ||
+                    bone_vector != prevbone_vector)
+                {
+                    prevpositions = positions;
+                    prevtris = tris;
+                    prevboneindices = boneindices;
+                    prevboneweights = boneweights;
+                    prevbone_pos = bone_pos;
+                    prevbone_vector = bone_vector;
+                    this.upload = true;
+                }
             }
+
+            
         }
     }
 
@@ -186,7 +211,7 @@ namespace Thundagun
 
     
 
-        public static Dictionary<UnityFrooxEngineRunner.MeshConnector, MeshConnectorExtension> meshes = new();//this.... is horrible I am sorry
+        public static Dictionary<UnityFrooxEngineRunner.MeshConnector, MeshConnectorExtension> meshes = new Dictionary<UnityFrooxEngineRunner.MeshConnector, MeshConnectorExtension>();//this.... is horrible I am sorry
 
         [HarmonyPatch("UpdateMeshData")]
         [HarmonyPostfix]
@@ -199,8 +224,9 @@ namespace Thundagun
                     meshes[__instance].Update(uploadHint, meshx);
                     return;
                 }
-                meshes.Add(__instance, new MeshConnectorExtension());
-                meshes[__instance].Update(uploadHint, meshx);
+                MeshConnectorExtension new_mesh = new MeshConnectorExtension();
+                new_mesh.Update(uploadHint, meshx);
+                meshes.Add(__instance, new_mesh);
             }
             catch (System.Exception e)
             {
@@ -228,11 +254,22 @@ namespace Thundagun
                         return;
                     }
                 }
-
+                MeshUploadBlenderHint flags;
+                if (!memoryobj.upload)
+                {
+                    MemoryObjectManagement.Save(TYPE);
+                    MemoryObjectManagement.Save(slotrefid);
+                    MemoryObjectManagement.Save(meshid);
+                    flags = MeshUploadBlenderHint.NewObj;
+                    MemoryObjectManagement.Save((byte)flags);
+                    MemoryObjectManagement.ReleaseObject();
+                    return;
+                }
+                memoryobj.upload = false;
                 MemoryObjectManagement.Save(TYPE);
                 MemoryObjectManagement.Save(slotrefid);
                 MemoryObjectManagement.Save(meshid);
-                MeshUploadBlenderHint flags = MeshUploadBlenderHint.Geometry;
+                flags = MeshUploadBlenderHint.Geometry;
                 if (memoryobj.bone_data)
                 {
                     flags |= MeshUploadBlenderHint.Bones;
