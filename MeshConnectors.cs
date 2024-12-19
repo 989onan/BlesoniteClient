@@ -78,17 +78,11 @@ namespace Thundagun
 
         public bool upload = false;
         public float[] positions = new float[] { 0 };
-        private float[] prevpositions = new float[] { 0 };
+
         public int[] tris = new int[] { 0 };
-        private int[] prevtris = new int[] { 0 };
         public int[] boneindices = new int[] { 0,0,0,0 };
-        private int[] prevboneindices = new int[] { 0 };
         public float[] boneweights = new float[] { 0 };
-        private float[] prevboneweights = new float[] { 0 };
-        public float[] bone_pos = new float[] { 0 };
-        private float[] prevbone_pos = new float[] { 0 };
-        public float[] bone_vector = new float[] { 0 };
-        private float[] prevbone_vector = new float[] { 0 };
+        public float[] bone_matrices = new float[] { 0 };
         public bool bone_data = false;
         public MeshConnectorExtension()
         {
@@ -100,9 +94,9 @@ namespace Thundagun
         {
             if (uploadHint[MeshUploadHint.Flag.Geometry])
             {
-                
+                upload = true;
 
-            }
+    }
             else
             {
                 return;
@@ -156,50 +150,60 @@ namespace Thundagun
                     j++;
                 }
 
-                bone_pos = new float[meshx.BoneCount * 3];
+                bone_matrices = new float[meshx.BoneCount * 16];
+
+
+
 
                 j = 0;
                 foreach (Elements.Assets.Bone o in meshx.Bones)
                 {
-                    bone_pos[3 * j] = o.BindPose.Inverse.DecomposedPosition.x;
+                   
 
-                    bone_pos[3 * j + 1] = o.BindPose.Inverse.DecomposedPosition.y;
-                    bone_pos[3 * j + 2] = o.BindPose.Inverse.DecomposedPosition.z;
+                    float4x4 final = o.BindPose.Inverse;
+                    floatQ rotation = final.DecomposedRotation;
+                    float3 scale = final.DecomposedScale;
+                    float3 position = final.DecomposedPosition;
+
+                    final = float4x4.Transform(new float3(position.x, position.z, position.y), new floatQ(rotation.x, rotation.z, rotation.y, -rotation.w), new float3(scale.x, scale.z, scale.y));
+
+                    bone_matrices[16 * j + 0] = final.m00;
+                    bone_matrices[16 * j + 1] = final.m01;
+                    bone_matrices[16 * j + 2] = final.m02;
+                    bone_matrices[16 * j + 3] = final.m03;
+
+                    bone_matrices[16 * j + 4] = final.m10;
+                    bone_matrices[16 * j + 5] = final.m11;
+                    bone_matrices[16 * j + 6] = final.m12;
+                    bone_matrices[16 * j + 7] = final.m13;
+
+                    bone_matrices[16 * j + 8] = final.m20;
+                    bone_matrices[16 * j + 9] = final.m21;
+                    bone_matrices[16 * j + 10] = final.m22;
+                    bone_matrices[16 * j + 11] = final.m23;
+                    
+                    bone_matrices[16 * j + 12] = final.m30;
+                    bone_matrices[16 * j + 13] = final.m31;
+                    bone_matrices[16 * j + 14] = final.m32;
+                    bone_matrices[16 * j + 15] = final.m33;
                     j++;
-                }
-
-
-                bone_vector = new float[meshx.BoneCount * 3];
-
-                j = 0;
-                foreach (Elements.Assets.Bone o in meshx.Bones)
-                {
-                    float3 pointing = o.BindPose.Inverse.DecomposedRotation * new float3(0, 0, 1);
-                    bone_vector[3 * j] = pointing.x;
-                    bone_vector[3 * j + 1] = pointing.y;
-                    bone_vector[3 * j + 2] = pointing.z;
-                    j++;
-                }
-
-
-                if (positions != prevpositions ||
-                    tris != prevtris ||
-                    boneindices != prevboneindices ||
-                    boneweights != prevboneweights ||
-                    bone_pos != prevbone_pos ||
-                    bone_vector != prevbone_vector)
-                {
-                    prevpositions = positions;
-                    prevtris = tris;
-                    prevboneindices = boneindices;
-                    prevboneweights = boneweights;
-                    prevbone_pos = bone_pos;
-                    prevbone_vector = bone_vector;
-                    this.upload = true;
                 }
             }
 
-            
+            /*if (positions != prevpositions ||
+                    tris != prevtris ||
+                    boneindices != prevboneindices ||
+                    boneweights != prevboneweights ||
+                    bone_matrices != prevbone_matrices
+                    )
+            {
+                prevpositions = positions;
+                prevtris = tris;
+                prevboneindices = boneindices;
+                prevboneweights = boneweights;
+                prevbone_matrices = bone_matrices;
+                this.upload = true;
+            }*/
         }
     }
 
@@ -219,6 +223,7 @@ namespace Thundagun
         {
             try
             {
+
                 if (meshes.ContainsKey(__instance))
                 {
                     meshes[__instance].Update(uploadHint, meshx);
@@ -290,8 +295,7 @@ namespace Thundagun
 
                     MemoryObjectManagement.SaveArray(memoryobj.boneindices);
                     MemoryObjectManagement.SaveArray(memoryobj.boneweights);
-                    MemoryObjectManagement.SaveArray(memoryobj.bone_pos);
-                    MemoryObjectManagement.SaveArray(memoryobj.bone_vector);
+                    MemoryObjectManagement.SaveArray(memoryobj.bone_matrices);
                 }
 
                 MemoryObjectManagement.ReleaseObject();

@@ -16,6 +16,7 @@ import io
 import traceback
 import csv
 import mathutils
+import random
 #from bitstring import BitArray #needs install if uncommented.
 
 from bpy.types import Scene, PropertyGroup, Object
@@ -42,6 +43,8 @@ status = ""
 FrooxiousBrain = None
 BlenderRunner = None
 PIPE: mmap.mmap = None
+
+BoneMap: dict[str, str] = {}
 
 def ReadBinary_Array(resp, type, bytesize):
     length = struct.unpack("<i", resp.read(4))[0]
@@ -87,15 +90,14 @@ class MeshUpdater():
     triangles = []
     has_bones = False
     bones = []
-    bone_position = []
-    bone_vector = []
+    bone_matrices = []
     vert_count = 0
     tri_count = 0
     
     file = None
     
     def BINARY_MESH(self, resp, obj_name_cross_refs, slotrefid, refid):
-        
+        global BoneMap
         #vert_count = 0
         
         
@@ -141,10 +143,10 @@ class MeshUpdater():
             bmesh_verts = []
             # Modify the BMesh, can do anything here...
             for newvert in range(0,self.vert_count):
-                bmesh_verts.append(bm.verts.new([self.vertices[newvert*3],self.vertices[(newvert*3)+2],self.vertices[(newvert*3)+1]]))
+                bmesh_verts.append(bm.verts.new([self.vertices[(newvert*3)+0],self.vertices[(newvert*3)+2],self.vertices[(newvert*3)+1]]))
             for newface in range(0,self.tri_count):
                 try:
-                    bm.faces.new([bmesh_verts[self.triangles[newface*3]],bmesh_verts[self.triangles[(newface*3)+2]],bmesh_verts[self.triangles[(newface*3)+1]]])
+                    bm.faces.new([bmesh_verts[self.triangles[(newface*3)+0]],bmesh_verts[self.triangles[(newface*3)+1]],bmesh_verts[self.triangles[(newface*3)+2]]])
                 except:
                     pass
 
@@ -166,17 +168,40 @@ class MeshUpdater():
             self.bone_weights = ReadBinary_Array(resp,"f",4) 
             
             for idx in range(0,self.vert_count):
-                    
-                    try:
-                        mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)]])]].add(index=[idx],weight=self.bone_weights[idx*4],type='REPLACE')
-                        mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)+1]])]].add(index=[idx],weight=self.bone_weights[(idx*4)+1],type='REPLACE')
-                        mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)+2]])]].add(index=[idx],weight=self.bone_weights[(idx*4)+2],type='REPLACE')
-                        mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)+3]])]].add(index=[idx],weight=self.bone_weights[(idx*4)+3],type='REPLACE')
-                    except:
-                        print(f"error doing bone: boneindex: {bone}, vert_index: {idx}")
-                        pass      
-            self.bone_position = np.reshape(np.array(ReadBinary_Array(resp,"f",4)),(-1,3)) 
-            self.bone_vector = np.reshape(np.array(ReadBinary_Array(resp,"f",4)),(-1,3)) 
+                try:
+                    mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)]])]].add(index=[idx],weight=self.bone_weights[idx*4],type='REPLACE')
+                    mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)+1]])]].add(index=[idx],weight=self.bone_weights[(idx*4)+1],type='REPLACE')
+                    mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)+2]])]].add(index=[idx],weight=self.bone_weights[(idx*4)+2],type='REPLACE')
+                    mesh_obj.vertex_groups[obj_name_cross_refs[str(self.bones[self.bone_groups[(idx*4)+3]])]].add(index=[idx],weight=self.bone_weights[(idx*4)+3],type='REPLACE')
+                except:
+                    print(f"error doing bone: boneindex: {bone}, vert_index: {idx}")
+                    pass
+            matrice_elements = ReadBinary_Array(resp,"f",4)
+            self.bone_matrices = []
+            for i in range(0,int(len(matrice_elements)/16)):
+                mat:mathutils.Matrix = mathutils.Matrix()
+                mat.resize_4x4()
+                mat[0][0] = matrice_elements[(i*16)+0]
+                mat[0][1] = matrice_elements[(i*16)+1]
+                mat[0][2] = matrice_elements[(i*16)+2]
+                mat[0][3] = matrice_elements[(i*16)+3]
+                
+                mat[1][0] = matrice_elements[(i*16)+4]
+                mat[1][1] = matrice_elements[(i*16)+5]
+                mat[1][2] = matrice_elements[(i*16)+6]
+                mat[1][3] = matrice_elements[(i*16)+7]
+                
+                mat[2][0] = matrice_elements[(i*16)+8]
+                mat[2][1] = matrice_elements[(i*16)+9]
+                mat[2][2] = matrice_elements[(i*16)+10]
+                mat[2][3] = matrice_elements[(i*16)+11]
+                
+                mat[3][0] = matrice_elements[(i*16)+12]
+                mat[3][1] = matrice_elements[(i*16)+13]
+                mat[3][2] = matrice_elements[(i*16)+14]
+                mat[3][3] = matrice_elements[(i*16)+15]
+                self.bone_matrices.append(mat)
+            
             
 
 
@@ -206,31 +231,28 @@ class MeshUpdater():
                 
                 
                 #skelly.  
-                #print("bone")
+                print(obj_name_cross_refs[str(bone)])
                 arm_data: bpy.types.Armature = skelly.data
                 newbone: bpy.types.PoseBone = None
-                if obj_name_cross_refs[str(bone)] in arm_data.edit_bones: 
-                    continue
-                    #newbone = arm_data.edit_bones[obj_name_cross_refs[str(bone)]]
+                if str(bone) in BoneMap: 
+                    newbone = arm_data.edit_bones[BoneMap[str(bone)]]
+                    print(obj_name_cross_refs[str(bone)] + " 1")
                 else:
+                    print(obj_name_cross_refs[str(bone)] + " 2")
                     newbone = arm_data.edit_bones.new(obj_name_cross_refs[str(bone)])
+                    BoneMap[str(bone)] = newbone.name
+                    #newbone = arm_data.edit_bones.new(obj_name_cross_refs[str(bone)])
                 
-                newbone.head = self.bone_position[idx]
-                newbone.tail = self.bone_vector[idx]+self.bone_position[idx]
-                
-                #spamwriter = csv.writer(csvfile, delimiter=' ',
-                #            quotechar='|', quoting=csv.QUOTE_MINIMAL)
-                #spamwriter.writerow([obj_name_cross_refs[str(bone)]]+["head"]+[newbone.head[0],newbone.head[1],newbone.head[2]])
-                #spamwriter.writerow([obj_name_cross_refs[str(bone)]]+["tail"]+[newbone.tail[0],newbone.tail[1],newbone.tail[2]])
-                newbone.head = [newbone.head[0],newbone.head[2],newbone.head[1]]
-                newbone.tail = [newbone.tail[0],newbone.tail[2],newbone.tail[1]]
-                #newbone.tail = [newbone.head[0],newbone.head[2],newbone.head[1]+1]
+                newbone.head = [random.random()*100, random.random()*100,random.random()*100]
+                newbone.tail = [.1,0,0]
+                newbone.tail = newbone.tail+newbone.head
+                newbone.matrix = self.bone_matrices[idx]
             bpy.ops.object.mode_set(mode='OBJECT')
             for idx,bone in enumerate(self.bones):
                 rotation: bpy.types.CopyRotationConstraint = None
                 location: bpy.types.CopyLocationConstraint  = None
                 scale: bpy.types.CopyScaleConstraint  = None
-                constraints: bpy.types.PoseBoneConstraints = skelly.pose.bones[obj_name_cross_refs[str(bone)]].constraints
+                constraints: bpy.types.PoseBoneConstraints = skelly.pose.bones[BoneMap[str(bone)]].constraints
                 if 'Copy Location' in constraints:
                     location = constraints['Copy Location']
                 else:
@@ -287,6 +309,7 @@ class ModalOperator(bpy.types.Operator):
         global mesh_queue
         global mesh_finishes
         global PIPE
+        
         #if FrooxiousBrain == None:
         #    InitFrooc()
         
@@ -344,6 +367,8 @@ class ModalOperator(bpy.types.Operator):
                         print("Deleting objects failed:")
                         print(traceback.format_exc())
                     self.obj_name_cross_refs = {}
+                    global BoneMap
+                    BoneMap = {}
                     bpy.ops.outliner.orphans_purge()
                     return {'FINISHED'}
                 return {'PASS_THROUGH'}
@@ -375,15 +400,17 @@ class ModalOperator(bpy.types.Operator):
         return {'PASS_THROUGH'}
 
     def invoke(self, context, event):
+        global BoneMap
         self.process = subprocess.Popen(["resonite.exe", "-Screen", "-LoadAssembly", "Libraries/ResoniteModLoader.dll", "-DoNotAutoLoadHome"], shell=True, cwd=path)
         self.obj_name_cross_refs = {}
+        BoneMap = {}
         InitFrooc()
         self._timer = context.window_manager.event_timer_add(0.01, window=context.window)
         context.window_manager.modal_handler_add(self)
         
         return {'RUNNING_MODAL'}
     def Binary_Update(self, bin, length: int):
-        #print(f"binary: {length}")
+        print(f"binary: {length}")
         #print(BitArray(bytes=bin).b)
         resp = BytesIOWrapper(io.BytesIO(bin))
         
@@ -473,8 +500,8 @@ class ModalOperator(bpy.types.Operator):
                 pass
             if(binary[-4] == '1'):
                 name:str = resp.read(struct.unpack('<i', resp.read(4))[0]).decode('utf-8')
-                if("UNNAMED" in ob.name):
-                    print(f"\"{ob.name}\" is an object being renamed to: \"{name}\"")
+                #if("UNNAMED" in ob.name):
+                #    print(f"\"{ob.name}\" is an object being renamed to: \"{name}\"")
                 if name != None:
                     ob.name = name
                     
