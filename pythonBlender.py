@@ -410,7 +410,7 @@ class ModalOperator(bpy.types.Operator):
         
         return {'RUNNING_MODAL'}
     def Binary_Update(self, bin, length: int):
-        print(f"binary: {length}")
+        #print(f"binary: {length}")
         #print(BitArray(bytes=bin).b)
         resp = BytesIOWrapper(io.BytesIO(bin))
         
@@ -473,7 +473,6 @@ class ModalOperator(bpy.types.Operator):
                 refid = struct.unpack("<Q", resp.read(8))[0]
                 #print(str(refid))
             
-            
         
                 #[obj for obj in bpy.data.objects if obj.refid == str(refid)]
                 if str(refid) in self.obj_name_cross_refs:
@@ -483,6 +482,7 @@ class ModalOperator(bpy.types.Operator):
                     bpy.data.collections["RESONITE"].objects.link(ob)
                     self.obj_name_cross_refs[str(refid)] = ob.name
                     ob.refid = str(refid)
+                    ob.empty_display_size = .1
             
             
             
@@ -502,7 +502,7 @@ class ModalOperator(bpy.types.Operator):
                 name:str = resp.read(struct.unpack('<i', resp.read(4))[0]).decode('utf-8')
                 #if("UNNAMED" in ob.name):
                 #    print(f"\"{ob.name}\" is an object being renamed to: \"{name}\"")
-                if name != None:
+                if name != None and name != "":
                     ob.name = name
                     
                     self.obj_name_cross_refs[str(refid)] = ob.name

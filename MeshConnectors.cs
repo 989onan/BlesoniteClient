@@ -34,11 +34,31 @@ namespace Thundagun
                     return;
                 }
                 ulong[] bones = __instance.Owner.Bones.ToList().Select(x => x.ReferenceID.Position).ToArray();
+
+                __instance.Owner.Bones.ToList().ForEach(x => SlotPatch.EnsureMemObj(x));
+                SlotPatch.getmemobj(__instance.Owner.Slot);
                 MeshConnectorPatch.WriteDataToBuffer((MeshConnector)__instance.Owner.Mesh.Asset.Connector, __instance.Owner.ReferenceID.Position, __instance.Owner.Slot.ReferenceID.Position, bones);
             }
             catch (System.Exception e)
             {
                 Thundagun.Msg("Skinned Mesh RendererConnectorPatch Error");
+                Thundagun.Msg(e.Message.ToString());
+                Thundagun.Msg(e.StackTrace.ToString());
+            }
+        }
+
+
+        [HarmonyPatch("Destroy")]
+        [HarmonyPrefix]
+        public static void Destroy(SkinnedMeshRendererConnector __instance)
+        {
+            try
+            {
+                __instance.Owner.Bones.ToList().ForEach(x => {if (x != null) { SlotPatch.DestroySlot(x);}});
+            }
+            catch (System.Exception e)
+            {
+                Thundagun.Msg("Skinned Mesh RendererConnectorPatch DESTROY Error");
                 Thundagun.Msg(e.Message.ToString());
                 Thundagun.Msg(e.StackTrace.ToString());
             }

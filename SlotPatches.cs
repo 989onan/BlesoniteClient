@@ -1,5 +1,6 @@
 ﻿using Elements.Core;
 using FrooxEngine;
+using FrooxEngine.ProtoFlux;
 using HarmonyLib;
 using System;
 using System.Collections.Generic;
@@ -11,11 +12,10 @@ using UnityFrooxEngineRunner;
 namespace Thundagun
 {
 
-    public class SlotConnectorExtension
+    public class SlotExtension
     {
 
         public string Name = "";
-        public string NewName = "";
 
         public float3 prevposition = new();
         public float3 prevscale = new();
@@ -23,12 +23,22 @@ namespace Thundagun
         public bool prevactive = true;
 
         public ulong IDposition = 0;
+        public ulong parentID = 0;
 
-        public SlotConnectorExtension()
+        public Slot instance;
+
+        public bool destroy = false;
+        public SlotExtension(Slot __instance)
         {
-
+            this.instance = __instance;
+            __instance.Changed += Update;
+            Update(__instance);
         }
 
+        public void Update(IChangeable input)
+        {
+            SlotPatch.WriteDataToBuffer(this.instance, this.instance.IsDestroying || this.destroy, this);
+        }
     }
 
 
@@ -47,163 +57,179 @@ namespace Thundagun
         Parent = 1 << 8
     }
 
-    [HarmonyPatch(typeof(UnityFrooxEngineRunner.SlotConnector))]
-    public static class SlotConnectorPatch
+    [HarmonyPatch(typeof(FrooxEngine.Slot))]
+    public static class SlotPatch
     {
         public static readonly byte TYPE = 1;
 
-        public static Dictionary<SlotConnector, SlotConnectorExtension> memory = new();
+        public static Dictionary<Slot, SlotExtension> memory = new();
 
-        public static SlotConnectorExtension getmemobj(SlotConnector __instance)
+        public static SlotExtension getmemobj(Slot __instance)
         {
-            memory.TryGetValue(__instance, out SlotConnectorExtension memoryobj);
+            memory.TryGetValue(__instance, out SlotExtension memoryobj);
             if (memoryobj == null)
             {
-                memory.Add(__instance, memoryobj = new SlotConnectorExtension());
+                memory.Add(__instance, memoryobj = new SlotExtension(__instance));
             }
             return memoryobj;
 
 
         }
 
-        [HarmonyPatch("GenerateGameObject")]
-        [HarmonyPostfix]
-        private static void GenerateGameObject(SlotConnector __instance)
+        public static List<SlotExtension> EnsureAndGetMemobjParents(Slot __instance)
         {
-            SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Rotation | SlotTransferType.Name | SlotTransferType.Position | SlotTransferType.Scale | SlotTransferType.Create | SlotTransferType.Active, getmemobj(__instance));
+            List<Slot> parents = new();
+            List<SlotExtension> memobjs = new();
+            __instance.GetAllParents(parents);
+            parents.Reverse();
+            foreach (Slot parent in parents)
+            {
+                memobjs.Add(getmemobj(parent));
+            }
+            return memobjs;
         }
 
-        [HarmonyPatch("UpdateParent")]
-        [HarmonyPostfix]
-        private static void UpdateParent(SlotConnector __instance)
+        public static void DestroyUnusedSlots(Slot __instance)
         {
-            SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Parent, getmemobj(__instance));
+
         }
 
-        [HarmonyPatch("UpdateData")]
-        [HarmonyPostfix]
-        private static void UpdateData(SlotConnector __instance)
+        public static void DestroySlot(Slot __instance)
         {
-            SlotConnectorExtension memoryobj = getmemobj(__instance);
-
-            SlotTransferType type = SlotTransferType.RefID;
-            if (__instance.Owner.LocalPosition != memoryobj.prevposition)
-            {
-                memoryobj.prevposition = __instance.Owner.LocalPosition;
-                type |= SlotTransferType.Position;
-            }
-            if (__instance.Owner.LocalRotation != memoryobj.prevrotation)
-            {
-                memoryobj.prevrotation = __instance.Owner.LocalRotation;
-                type |= SlotTransferType.Rotation;
-            }
-            if (__instance.Owner.LocalScale != memoryobj.prevscale)
-            {
-                memoryobj.prevscale = __instance.Owner.LocalScale;
-                type |= SlotTransferType.Scale;
-            }
-
-            if (__instance.Owner.ActiveSelf != memoryobj.prevactive)
-            {
-                memoryobj.prevactive = __instance.Owner.ActiveSelf;
-                type |= SlotTransferType.Active;
-            }
-
-            SlotConnectorPatch.WriteDataToBuffer(__instance, type, memoryobj);
+            var memobj = getmemobj(__instance);
+            memobj.destroy = true;
+            
+            DestroyUnusedSlots(__instance);
+            memobj.Update(__instance);
         }
 
-        [HarmonyPatch("TryDestroy")]
-        [HarmonyPostfix]
-        public static void TryDestroy(SlotConnector __instance, bool ___shouldDestroy, ref int ___gameObjectRequests)
+        public static SlotExtension EnsureMemObj(Slot __instance)
         {
-            if (___shouldDestroy && ___gameObjectRequests == 0)
-            {
-                SlotConnectorPatch.WriteDataToBuffer(__instance, SlotTransferType.Destroy, getmemobj(__instance));
-            }
+            EnsureAndGetMemobjParents(__instance);
+            var memobj = getmemobj(__instance);
+
+            return memobj;
         }
+       
 
 
-        public static void WriteDataToBuffer(SlotConnector __instance, SlotTransferType type, SlotConnectorExtension memoryobj)
+        public static void WriteDataToBuffer(Slot __instance, bool destroy, SlotExtension memoryobj)
         {
 
             try
             {
+                //Thundagun.Msg("start" + "1");
+                //Thundagun.Msg("start" + "2");
+                SlotTransferType type = SlotTransferType.RefID;
+                
+                if(destroy) type |= SlotTransferType.Destroy;
 
-                try
+                //check if fields have changed.
+                if(memoryobj.prevactive != __instance.ActiveSelf)
                 {
-                    if (__instance.Owner.Name != null)
+                    type |= SlotTransferType.Active;
+                    memoryobj.prevactive = __instance.ActiveSelf;
+                }
+                if (memoryobj.prevposition != __instance.LocalPosition)
+                {
+                    type |= SlotTransferType.Position;
+                    memoryobj.prevposition = __instance.LocalPosition;
+                }
+                if (memoryobj.prevrotation != __instance.LocalRotation)
+                {
+                    type |= SlotTransferType.Rotation;
+                    memoryobj.prevrotation = __instance.LocalRotation;
+                }
+                if (memoryobj.prevscale != __instance.LocalScale)
+                {
+                    type |= SlotTransferType.Scale;
+                    memoryobj.prevscale = __instance.LocalScale;
+                }
+                if (memoryobj.Name != __instance.Name)
+                {
+                    type |= SlotTransferType.Name;
+                    memoryobj.Name = __instance.Name;
+                }
+                if(__instance.Parent != null)
+                {
+                    if (memoryobj.parentID != __instance.Parent.ReferenceID.Position)
                     {
-                        memoryobj.NewName = __instance.Owner.Name;
-                        if (!memoryobj.Name.Equals(memoryobj.NewName)) { type |= SlotTransferType.Name; }
+                        type |= SlotTransferType.Parent;
+                        memoryobj.parentID = __instance.Parent.ReferenceID.Position;
                     }
                 }
-                catch
-                {
-                    //idc
-                }
-                type |= SlotTransferType.RefID;
+                
+
+
+                //if destroy, only destroy.
                 if (type.HasFlag(SlotTransferType.Destroy))
                 {
-                    type = SlotTransferType.Destroy;
-                    type |= SlotTransferType.RefID;
+                    type = SlotTransferType.RefID;
+                    type |= SlotTransferType.Destroy;
                 }
-
+                //Thundagun.Msg("start" + "3");
                 MemoryObjectManagement.Save(TYPE);
                 MemoryObjectManagement.Save(((int)type));
 
 
 
-
+                //Thundagun.Msg("start" + "4");
                 if (type.HasFlag(SlotTransferType.RefID))
                 {
                     
-                    MemoryObjectManagement.Save(__instance.Owner.ReferenceID.Position);
+                    MemoryObjectManagement.Save(__instance.ReferenceID.Position);
                 }
+                //Thundagun.Msg("start" + "5");
                 if (type.HasFlag(SlotTransferType.Destroy))
                 {
                     MemoryObjectManagement.ReleaseObject();
                     memory.Remove(__instance); //release resources
+                    memoryobj.instance.Changed -= memoryobj.Update;
                     return;
                 }
-
-
-
+                //Thundagun.Msg("start" + "6");
 
                 if (type.HasFlag(SlotTransferType.Name))
                 {
-                    memoryobj.Name = memoryobj.NewName;
 
                     MemoryObjectManagement.SaveString(memoryobj.Name);
                 }
 
 
+                //Thundagun.Msg("start" + "7");
+
                 if (type.HasFlag(SlotTransferType.Active))
                 {
-                    MemoryObjectManagement.Save(__instance.Owner.ActiveSelf);
+                    MemoryObjectManagement.Save(__instance.ActiveSelf);
                 }
+                //Thundagun.Msg("start" + "8");
                 if (type.HasFlag(SlotTransferType.Position))
                 {
-                    MemoryObjectManagement.Save(__instance.Owner.LocalPosition.x);
-                    MemoryObjectManagement.Save(__instance.Owner.LocalPosition.y);
-                    MemoryObjectManagement.Save(__instance.Owner.LocalPosition.z);
+                    MemoryObjectManagement.Save(__instance.LocalPosition.x);
+                    MemoryObjectManagement.Save(__instance.LocalPosition.y);
+                    MemoryObjectManagement.Save(__instance.LocalPosition.z);
                 }
+                //Thundagun.Msg("start" + "9");
                 if (type.HasFlag(SlotTransferType.Rotation))
                 {
-                    MemoryObjectManagement.Save(__instance.Owner.LocalRotation.x);
-                    MemoryObjectManagement.Save(__instance.Owner.LocalRotation.y);
-                    MemoryObjectManagement.Save(__instance.Owner.LocalRotation.z);
-                    MemoryObjectManagement.Save(__instance.Owner.LocalRotation.w);
+                    MemoryObjectManagement.Save(__instance.LocalRotation.x);
+                    MemoryObjectManagement.Save(__instance.LocalRotation.y);
+                    MemoryObjectManagement.Save(__instance.LocalRotation.z);
+                    MemoryObjectManagement.Save(__instance.LocalRotation.w);
                 }
+                //Thundagun.Msg("start" + "10");
                 if (type.HasFlag(SlotTransferType.Scale))
                 {
-                    MemoryObjectManagement.Save(__instance.Owner.LocalScale.x);
-                    MemoryObjectManagement.Save(__instance.Owner.LocalScale.y);
-                    MemoryObjectManagement.Save(__instance.Owner.LocalScale.z);
+                    MemoryObjectManagement.Save(__instance.LocalScale.x);
+                    MemoryObjectManagement.Save(__instance.LocalScale.y);
+                    MemoryObjectManagement.Save(__instance.LocalScale.z);
                 }
+                //Thundagun.Msg("start" + "11");
                 if (type.HasFlag(SlotTransferType.Parent))
                 {
-                    MemoryObjectManagement.Save(__instance.Owner.Parent.ReferenceID.Position);
+                    MemoryObjectManagement.Save(__instance.Parent.ReferenceID.Position);
                 }
+                //Thundagun.Msg("start" + "12");
                 MemoryObjectManagement.ReleaseObject();
 
 
